@@ -1,0 +1,103 @@
+clear; clc; close all;
+
+%% 1. User Inputs
+alpha = 2.45;    % Relative Volatility (e.g., Benzene-Toluene)
+xf    = 0.50;    % Feed mole fraction
+xd    = 0.95;    % Distillate mole fraction
+xb    = 0.05;    % Bottoms mole fraction
+R     = 1.50;    % Operating Reflux Ratio
+q     = 1.00;    % Feed Condition (q = 1 for saturated liquid feed)
+
+%% 2. Equilibrium Curve Data
+x_eq = linspace(0, 1, 200);
+y_eq = (alpha .* x_eq) ./ (1 + (alpha - 1) .* x_eq);
+
+%% 3. Operating Lines Calculation
+% ROL: y = (R/(R+1))*x + xd/(R+1)
+m_rol = R / (R + 1);
+c_rol = xd / (R + 1);
+
+% Intersection of ROL and q-line (Feed point: x_intersect, y_intersect)
+if q == 1
+    x_i = xf;
+    y_i = m_rol * x_i + c_rol;
+else
+    % q-line: y = (q/(q-1))*x - xf/(q-1)
+    m_q = q / (q - 1);
+    c_q = -xf / (q - 1);
+    
+    % Solve for intersection: m_rol*x + c_rol = m_q*x + c_q
+    x_i = (c_q - c_rol) / (m_rol - m_q);
+    y_i = m_rol * x_i + c_rol;
+end
+
+% SOL: Connects (x_i, y_i) to (xb, xb)
+m_sol = (y_i - xb) / (x_i - xb);
+c_sol = xb - m_sol * xb;
+
+%% 4. Stage-by-Stage Stepping (McCabe-Thiele Algorithm)
+x_curr = xd;
+y_curr = xd;
+
+num_stages = 0;
+feed_stage = 0;
+
+% Storage vectors for plotting staircase steps
+x_step = [xd];
+y_step = [xd];
+
+while x_curr > xb
+    num_stages = num_stages + 1;
+    
+    % Step 1: Horizontal move to Equilibrium Curve (y_curr = y_eq -> find x_eq)
+    % x_eq = y_curr / (alpha - (alpha - 1)*y_curr)
+    x_curr = y_curr / (alpha - (alpha - 1) * y_curr);
+    
+    x_step = [x_step, x_curr];
+    y_step = [y_step, y_curr];
+    
+    % Check if we crossed the feed intersection to identify optimal feed stage
+    if x_curr <= x_i && feed_stage == 0
+        feed_stage = num_stages;
+    end
+    
+    % Step 2: Vertical move to Operating Line
+    if x_curr > x_i
+        % Still in Rectifying Section (ROL)
+        y_curr = m_rol * x_curr + c_rol;
+    else
+        % Moved into Stripping Section (SOL)
+        y_curr = m_sol * x_curr + c_sol;
+    end
+    
+    x_step = [x_step, x_curr];
+    y_step = [y_step, y_curr];
+end
+
+%% 5. Output Summary to Command Window
+fprintf('        DISTILLATION COLUMN DESIGN RESULTS          \n');
+fprintf('Relative Volatility (alpha) : %.2f\n', alpha);
+fprintf('Reflux Ratio (R)           : %.2f\n', R);
+fprintf('Total Theoretical Stages    : %d\n', num_stages);
+fprintf('Optimal Feed Stage Location: Stage %d (from top)\n', feed_stage);
+%% 6. Visualization
+figure('Name', 'McCabe-Thiele Diagram', 'Color', 'w');
+plot(x_eq, y_eq, 'b-', 'LineWidth', 2); hold on; % Equilibrium curve
+plot([0 1], [0 1], 'k--', 'LineWidth', 1);       % 45-degree line
+
+% Plot Operating Lines
+plot([x_i xd], [y_i xd], 'g-', 'LineWidth', 1.8); % ROL
+plot([xb x_i], [xb y_i], 'm-', 'LineWidth', 1.8); % SOL
+plot([xf x_i], [xf y_i], 'r--', 'LineWidth', 1.8); % q-line
+
+% Plot Stage Staircase Steps
+plot(x_step, y_step, 'r-', 'LineWidth', 1.5);
+
+% Formatting and Labels
+grid on;
+xlabel('Liquid Mole Fraction, x');
+ylabel('Vapor Mole Fraction, y');
+title(sprintf('McCabe-Thiele Method (N_{stages} = %d, Feed Stage = %d)', num_stages, feed_stage));
+legend('Equilibrium Curve', 'y = x Line', 'Rectifying Op Line (ROL)', ...
+       'Stripping Op Line (SOL)', 'q-Line', 'Theoretical Stages', 'Location', 'NorthWest');
+axis([0 1 0 1]);
